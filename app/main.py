@@ -57,7 +57,19 @@ async def _probe_llm() -> bool:
                 },
             )
         if r.status_code == 200:
-            reply = r.json()["choices"][0]["message"]["content"].strip()
+            data = r.json()
+            # Qwen3 и некоторые модели возвращают content=None
+            # когда весь текст идёт в reasoning_content (thinking mode).
+            # Для probe достаточно HTTP 200.
+            choice = data.get("choices", [{}])[0]
+            msg = choice.get("message", {})
+            reply = (
+                msg.get("content")
+                or msg.get("reasoning_content")
+                or "(empty — model returned no content field)"
+            )
+            if isinstance(reply, str):
+                reply = reply.strip()[:80]
             log.info("  ✓ LLM reachable — response: %r", reply)
             return True
         else:
@@ -83,6 +95,8 @@ async def _probe_mcp() -> None:
         log.info("━━━  MCP SERVER  ━━━")
         log.info("  prefix : %s", prefix)
         log.info("  url    : %s", url)
+        if not str(url).rstrip("/").endswith("/mcp"):
+            log.warning("  ⚠ URL does not end with /mcp — FastMCP expects http://<host>:<port>/mcp")
         try:
             tools = await server.list_tools()
             if tools:

@@ -78,7 +78,7 @@ services:
       # Варианты адреса:
       #   http://gis-mcp:8080/mcp      ← другой контейнер в owui-net
       #   http://172.17.0.1:8080/mcp   ← сервис на хосте (Linux)
-      GIS_MCP_URL: "${GIS_MCP_URL:-}"
+      GIS_BASE_URL: "${GIS_BASE_URL:-}"
       GIS_MCP_TOKEN: "${GIS_MCP_TOKEN:-}"
 
       # ── Опционально ──────────────────────────────────────────────────────

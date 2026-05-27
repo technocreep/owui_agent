@@ -21,7 +21,8 @@ import httpx
 from fastapi import FastAPI, Header
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from app.agent import run_agent, VLLM_BASE_URL, VLLM_API_KEY, VLLM_MODEL, _build_mcp_toolsets
+from app.agent import run_agent, VLLM_BASE_URL, VLLM_API_KEY, VLLM_MODEL
+from app import gis_client
 from app.models.openai import ChatCompletionRequest, ChatCompletionResponse
 
 log = logging.getLogger("agent.startup")
@@ -80,34 +81,27 @@ async def _probe_llm() -> bool:
         return False
 
 
-async def _probe_mcp() -> None:
+async def _probe_gis() -> None:
     """
-    Подключается к каждому MCP-серверу и выводит список его инструментов.
+    Проверяет доступность GIS REST API и выводит список проектов.
     """
-    toolsets = _build_mcp_toolsets()
-    if not toolsets:
-        log.info("━━━  MCP  ━━━  no servers configured")
+    if not gis_client.GIS_BASE_URL:
+        log.info("━━━  GIS  ━━━  GIS_BASE_URL not set, skipping")
         return
 
-    for server in toolsets:
-        prefix = getattr(server, "_tool_prefix", None) or getattr(server, "tool_prefix", "?")
-        url    = getattr(server, "url", "?")
-        log.info("━━━  MCP SERVER  ━━━")
-        log.info("  prefix : %s", prefix)
-        log.info("  url    : %s", url)
-        if not str(url).rstrip("/").endswith("/mcp"):
-            log.warning("  ⚠ URL does not end with /mcp — FastMCP expects http://<host>:<port>/mcp")
-        try:
-            tools = await server.list_tools()
-            if tools:
-                log.info("  ✓ %d tool(s):", len(tools))
-                for t in tools:
-                    desc = (t.description or "").split("\n")[0][:80]
-                    log.info("    • %s__%s  —  %s", prefix, t.name, desc)
-            else:
-                log.warning("  ⚠ server reachable but returned 0 tools")
-        except Exception as e:
-            log.error("  ✗ MCP unreachable: %s", e)
+    log.info("━━━  GIS PROBE  ━━━")
+    log.info("  url : %s", gis_client.GIS_BASE_URL)
+    try:
+        projects = await gis_client.list_projects()
+        items = projects if isinstance(projects, list) else projects.get("projects", [])
+        log.info("  ✓ GIS reachable — %d project(s):", len(items))
+        for p in items:
+            pid  = p.get("id", p.get("project_id", "?"))
+            name = p.get("name", p.get("title", "?"))
+            nlayers = p.get("layers_total", p.get("layer_count", "?"))
+            log.info("    • [%s] %s  (%s layers)", pid, name, nlayers)
+    except Exception as e:
+        log.error("  ✗ GIS unreachable: %s", e)
 
 
 @asynccontextmanager
@@ -115,7 +109,7 @@ async def lifespan(app: FastAPI):
     # ── startup ──────────────────────────────────────────────────────────────
     log.info("═══  AGENT STARTUP  ═══")
     llm_ok = await _probe_llm()
-    await _probe_mcp()
+    await _probe_gis()
     if llm_ok:
         log.info("═══  STARTUP COMPLETE — ready to serve  ═══")
     else:

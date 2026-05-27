@@ -15,13 +15,13 @@ from __future__ import annotations
 import os
 
 from pydantic_ai import Agent
-from pydantic_ai.mcp import MCPServerHTTP
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from app.models.deps import AgentDeps
 from app.models.openai import Message
 from app.tools.owui_tools import register_tools
+from app.tools.gis_tools import register_gis_tools
 
 # ---------------------------------------------------------------------------
 # vLLM connection — единственный LLM-бэкенд агента
@@ -134,47 +134,10 @@ IF "Справочная литература" is unavailable — tell the user 
 )
 
 
-def _build_mcp_toolsets() -> list:
-    """
-    Собирает список MCP-toolset-ов из env-переменных.
-
-    Каждый MCP-сервер — AbstractToolset: PydanticAI автоматически
-    подгружает все инструменты сервера без написания кода под каждый.
-
-    arcgis_mcp использует FastMCP 3.x с transport=http →
-    Streamable HTTP (MCP spec 2025-03-26) на пути /mcp.
-    Поэтому всегда используем MCPServerHTTP.
-    """
-    toolsets = []
-
-    if GIS_MCP_URL:
-        headers: dict[str, str] = {}
-        if GIS_MCP_TOKEN:
-            headers["Authorization"] = f"Bearer {GIS_MCP_TOKEN}"
-
-        # arcgis_mcp: FastMCP transport=http → Streamable HTTP на /mcp
-        # tool_prefix="gis" → все инструменты получают имя gis__<name>,
-        # что исключает коллизии с другими toolset-ами.
-        server = MCPServerHTTP(
-            url=GIS_MCP_URL,
-            headers=headers or None,
-            tool_prefix="gis",
-        )
-        toolsets.append(server)
-        print(f"[agent] GIS MCP (arcgis_mcp) registered: {GIS_MCP_URL}")
-
-    # Паттерн для добавления других MCP-серверов:
-    # if os.getenv("ANOTHER_MCP_URL"):
-    #     toolsets.append(MCPServerHTTP(
-    #         url=os.getenv("ANOTHER_MCP_URL"),
-    #         tool_prefix="svc",
-    #     ))
-
-    return toolsets
 
 
 def _build_agent() -> Agent[AgentDeps, str]:
-    """Собирает агента с vLLM как LLM-бэкендом и MCP-toolset-ами."""
+    """Собирает агента с vLLM как LLM-бэкендом."""
     model = OpenAIModel(
         VLLM_MODEL,
         provider=OpenAIProvider(
@@ -182,16 +145,18 @@ def _build_agent() -> Agent[AgentDeps, str]:
             api_key=VLLM_API_KEY,
         ),
     )
-    mcp_toolsets = _build_mcp_toolsets()
-
     agent: Agent[AgentDeps, str] = Agent(
         model=model,
         deps_type=AgentDeps,
         output_type=str,
         instructions=SYSTEM_PROMPT,
-        toolsets=mcp_toolsets or None,
     )
     register_tools(agent)
+    gis_registered = register_gis_tools(agent)
+    if gis_registered:
+        print(f"[agent] GIS tools registered (REST API: {__import__('os').getenv('GIS_BASE_URL')})")
+    else:
+        print("[agent] GIS tools NOT registered — GIS_BASE_URL not set")
     return agent
 
 

@@ -224,7 +224,6 @@ async def run_agent(messages: list[Message], owui_token: str) -> str:
     """
     deps = AgentDeps(
         owui_token=owui_token,
-        owui_model=OWUI_DELEGATE_MODEL,
     )
     prompt = _messages_to_prompt(messages)
     result = await _agent.run(prompt, deps=deps)

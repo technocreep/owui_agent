@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 @dataclass
 class AgentDeps:
     owui_token: str    # bearer token forwarded from OWUI request
-    owui_model: str    # OWUI model for delegation (Способ B — not used currently)
     # Self-URL used by sub_agent tool to call this service recursively.
     # Set via AGENT_SELF_URL env (e.g. http://pydantic-agent:8000).
     agent_self_url: str = field(

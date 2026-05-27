@@ -1,5 +1,3 @@
-version: "3.9"
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Топология:
 #
@@ -19,6 +17,15 @@ services:
     build: .
     container_name: pydantic-agent
     restart: unless-stopped
+    # Healthcheck дублирует DOCKERFILE HEALTHCHECK для docker compose ps.
+    # interval/timeout/retries должны совпадать с Dockerfile.
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request, sys; r = urllib.request.urlopen('http://localhost:8000/health', timeout=14); sys.exit(0 if r.status == 200 else 1)"]
+      start_period: 30s
+      interval: 30s
+      timeout: 15s
+      retries: 3
     ports:
       - "8000:8000"   # для отладки; OWUI обращается по внутреннему DNS
     environment:
@@ -85,5 +92,9 @@ services:
 
 networks:
   owui-net:
-    external: true
+    # Если OWUI уже запущен в своей сети — замените на:
+    #   external: true
+    #   name: <имя_сети_owui>  # узнать: docker network ls
+    # По умолчанию сеть создаётся автоматически этим compose-файлом.
+    driver: bridge
     name: owui-net

@@ -192,5 +192,5 @@ async def run_agent(messages: list[Message], owui_token: str) -> str:
     )
     prompt = _messages_to_prompt(messages)
     result = await _agent.run(prompt, deps=deps)
-    # pydantic-ai ≥1.0: финальный ответ в result.response
-    return result.response
+    # pydantic-ai: финальный ответ в result.output
+    return result.output

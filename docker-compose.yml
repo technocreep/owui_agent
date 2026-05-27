@@ -1,0 +1,89 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Топология:
+#
+#   [User] → [OWUI :3000] → [pydantic-agent :8000]
+#                                    │
+#                      ┌─────────────┴──────────────┐
+#                      ▼                            ▼
+#               [vLLM на хосте]            [OWUI API]
+#               (reasoning)            (KB / built-in tools)
+#
+# vLLM не в compose — он уже запущен на хосте или другом сервере.
+# Агент обращается к нему через VLLM_BASE_URL.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  pydantic-agent:
+    build: .
+    container_name: pydantic-agent
+    restart: unless-stopped
+    ports:
+      - "9666:8000"   # для отладки; OWUI обращается по внутреннему DNS
+    environment:
+
+      # ── vLLM (основной LLM-бэкенд агента) ──────────────────────────────
+      # Варианты VLLM_BASE_URL в зависимости от топологии:
+      #
+      #   vLLM на той же машине (Linux Docker):
+      #     http://172.17.0.1:8000/v1          ← docker0 bridge gateway
+      #     http://host.docker.internal:8000/v1 ← Docker Desktop / Win / Mac
+      #
+      #   vLLM на другом сервере в сети:
+      #     http://192.168.1.50:8000/v1
+      #
+      #   vLLM в соседнем контейнере (добавить его в owui-net):
+      #     http://vllm:8000/v1
+      #
+      VLLM_BASE_URL: "${VLLM_BASE_URL}"        # обязательно — задать в .env
+
+      # Имя модели точно как в --model при запуске vLLM:
+      #   python -m vllm.entrypoints.openai.api_server \
+      #     --model Qwen/Qwen2.5-72B-Instruct ...
+      VLLM_MODEL: "${VLLM_MODEL}"              # обязательно — задать в .env
+
+      # Если vLLM запущен без --api-key — оставить "EMPTY"
+      VLLM_API_KEY: "${VLLM_API_KEY:-EMPTY}"
+
+      # ── OWUI (только KB + built-in tools) ───────────────────────────────
+      OWUI_BASE_URL: "http://open-webui:3000"
+
+      # API-ключ агента в OWUI (Settings → Account → API Keys)
+      OWUI_SERVICE_TOKEN: "${OWUI_SERVICE_TOKEN:-}"
+
+      # Модель внутри OWUI для delegate_to_owui (Способ B).
+      # Это имя модели как в OWUI, обычно совпадает с VLLM_MODEL
+      # если OWUI тоже подключён к тому же vLLM.
+      OWUI_DELEGATE_MODEL: "${OWUI_DELEGATE_MODEL:-${VLLM_MODEL}}"
+
+      # ── Self-reference (sub_agent tool) ─────────────────────────────────
+      # URL этого же сервиса — используется инструментом sub_agent для
+      # рекурсивного вызова агента при делегировании тяжёлых задач.
+      # Внутри Docker-сети контейнер доступен по своему имени.
+      AGENT_SELF_URL: "http://pydantic-agent:8000"
+
+      # ── GIS MCP Server ───────────────────────────────────────────────────
+      # Транспорт определяется автоматически по URL:
+      #   .../sse  → SSE транспорт
+      #   иначе    → Streamable HTTP (рекомендуется для MCP 2025-03-26+)
+      #
+      # Варианты адреса:
+      #   http://gis-mcp:8080/mcp      ← другой контейнер в owui-net
+      #   http://172.17.0.1:8080/mcp   ← сервис на хосте (Linux)
+      GIS_MCP_URL: "${GIS_MCP_URL:-}"
+      GIS_MCP_TOKEN: "${GIS_MCP_TOKEN:-}"
+
+      # ── Опционально ──────────────────────────────────────────────────────
+      # AGENT_SYSTEM_PROMPT: "Ты помощник..."
+
+    networks:
+      - owui-net
+    extra_hosts:
+      # Позволяет резолвить host.docker.internal на Linux
+      - "host.docker.internal:host-gateway"
+
+networks:
+  owui-net:
+    external: true
+    name: owui-net
